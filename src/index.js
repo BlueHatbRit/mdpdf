@@ -1,25 +1,31 @@
-const fs = require('fs');
-const path = require('path');
-const Promise = require('bluebird');
-const showdown = require('showdown');
-const showdownEmoji = require('showdown-emoji');
-const puppeteer = require('puppeteer');
-const Handlebars = require('handlebars');
-const loophole = require('loophole');
-const utils = require('./utils');
-const puppeteerHelper = require('./puppeteer-helper');
+import { readFile as _readFile, writeFile as _writeFile, renameSync, unlinkSync } from 'fs';
+import { join, dirname, resolve } from 'path';
+import { promisify } from 'util';
+import { fileURLToPath } from 'url';
+import showdown from 'showdown';
+const { setFlavor, Converter } = showdown;
+import showdownEmoji from 'showdown-emoji';
+import { launch } from 'puppeteer';
+import handlebars from 'handlebars';
+const { SafeString, compile } = handlebars;
+import { allowUnsafeNewFunction } from 'loophole';
+import { getStyles, getStyleBlock, qualifyImgSources } from './utils.js';
+import { getOptions } from './puppeteer-helper.js';
 
-const readFile = Promise.promisify(fs.readFile);
-const writeFile = Promise.promisify(fs.writeFile);
+const readFile = promisify(_readFile);
+const writeFile = promisify(_writeFile);
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Main layout template
-const layoutPath = path.join(__dirname, '/layouts/doc-body.hbs');
-const headerLayoutPath = path.join(__dirname, '/layouts/header.hbs');
-const footerLayoutPath = path.join(__dirname, '/layouts/footer.hbs');
+const layoutPath = join(__dirname, '/layouts/doc-body.hbs');
+const headerLayoutPath = join(__dirname, '/layouts/header.hbs');
+const footerLayoutPath = join(__dirname, '/layouts/footer.hbs');
 
 // Syntax highlighting
 const highlightJs =
-  'file://' + path.join(__dirname, '/assets/highlight/highlight.pack.js');
+  'file://' + join(__dirname, '/assets/highlight/highlight.pack.js');
 
 function getAllStyles(options) {
   const cssStyleSheets = [];
@@ -27,17 +33,17 @@ function getAllStyles(options) {
   // GitHub Markdown Style
   if (options.ghStyle) {
     cssStyleSheets.push(
-      path.join(__dirname, '/assets/github-markdown-css.css')
+      join(__dirname, '/assets/github-markdown-css.css')
     );
   }
   // Highlight CSS
   cssStyleSheets.push(
-    path.join(__dirname, '/assets/highlight/styles/github.css')
+    join(__dirname, '/assets/highlight/styles/github.css')
   );
 
   // Some additional defaults such as margins
   if (options.defaultStyle) {
-    cssStyleSheets.push(path.join(__dirname, '/assets/default.css'));
+    cssStyleSheets.push(join(__dirname, '/assets/default.css'));
   }
 
   // Optional user given CSS
@@ -46,13 +52,13 @@ function getAllStyles(options) {
   }
 
   return {
-    styles: utils.getStyles(cssStyleSheets),
-    styleBlock: utils.getStyleBlock(cssStyleSheets),
+    styles: getStyles(cssStyleSheets),
+    styleBlock: getStyleBlock(cssStyleSheets),
   };
 }
 
 function parseMarkdownToHtml(markdown, convertEmojis) {
-  showdown.setFlavor('github');
+  setFlavor('github');
   const options = {
     prefixHeaderId: false,
     ghCompatibleHeaderId: true,
@@ -64,12 +70,12 @@ function parseMarkdownToHtml(markdown, convertEmojis) {
     options.extensions = [showdownEmoji];
   }
 
-  const converter = new showdown.Converter(options);
+  const converter = new Converter(options);
 
   return converter.makeHtml(markdown);
 }
 
-function convert(options) {
+export function convert(options) {
   options = options || {};
   if (!options.source) {
     throw new Error('Source path must be provided');
@@ -79,11 +85,11 @@ function convert(options) {
     throw new Error('Destination path must be provided');
   }
 
-  options.assetDir = path.dirname(path.resolve(options.source));
+  options.assetDir = dirname(resolve(options.source));
 
   let template = {};
   const styles = getAllStyles(options);
-  let css = new Handlebars.SafeString(styles.styleBlock);
+  let css = new SafeString(styles.styleBlock);
   const local = {
     highlightJs,
     css: css,
@@ -104,7 +110,7 @@ function convert(options) {
       return readFile(layoutPath, 'utf8');
     })
     .then(layout => {
-      template = Handlebars.compile(layout);
+      template = compile(layout);
 
       // Pull in the document source markdown
       return readFile(options.source, 'utf8');
@@ -113,11 +119,11 @@ function convert(options) {
       // Compile the main document
       let content = parseMarkdownToHtml(mdDoc, !options.noEmoji);
 
-      content = utils.qualifyImgSources(content, options);
+      content = qualifyImgSources(content, options);
 
-      local.body = new Handlebars.SafeString(content);
+      local.body = new SafeString(content);
       // Use loophole for this body template to avoid issues with editor extensions
-      const html = loophole.allowUnsafeNewFunction(() => template(local));
+      const html = allowUnsafeNewFunction(() => template(local));
 
       return createPdf(html, options);
     });
@@ -130,18 +136,18 @@ function prepareHeader(options, css) {
     // Get the hbs layout
     return readFile(headerLayoutPath, 'utf8')
       .then(headerLayout => {
-        headerTemplate = Handlebars.compile(headerLayout);
+        headerTemplate = compile(headerLayout);
 
         // Get the header html
         return readFile(options.header, 'utf8');
       })
       .then(headerContent => {
-        const preparedHeader = utils.qualifyImgSources(headerContent, options);
+        const preparedHeader = qualifyImgSources(headerContent, options);
 
         // Compile the header template
         const headerHtml = headerTemplate({
-          content: new Handlebars.SafeString(preparedHeader),
-          css: new Handlebars.SafeString(css.replace(/"/gm, "'")),
+          content: new SafeString(preparedHeader),
+          css: new SafeString(css.replace(/"/gm, "'")),
         });
 
         return headerHtml;
@@ -154,7 +160,7 @@ function prepareHeader(options, css) {
 function prepareFooter(options) {
   if (options.footer) {
     return readFile(options.footer, 'utf8').then(footerContent => {
-      const preparedFooter = utils.qualifyImgSources(footerContent, options);
+      const preparedFooter = qualifyImgSources(footerContent, options);
 
       return preparedFooter;
     });
@@ -168,14 +174,14 @@ function createPdf(html, options) {
   let browser;
   let page;
 
-  const tempHtmlPath = path.join(
-    path.dirname(options.destination),
+  const tempHtmlPath = join(
+    dirname(options.destination),
     '_temp.html'
   );
 
   return writeFile(tempHtmlPath, html)
     .then(() => {
-      return puppeteer.launch({ headless: true });
+      return launch({ headless: 'new' });
     })
     .then(newBrowser => {
       browser = newBrowser;
@@ -187,7 +193,7 @@ function createPdf(html, options) {
       return page.goto('file:' + tempHtmlPath, { waitUntil: 'networkidle2' });
     })
     .then(() => {
-      const puppetOptions = puppeteerHelper.getOptions(options);
+      const puppetOptions = getOptions(options);
 
       return page.pdf(puppetOptions);
     })
@@ -196,15 +202,11 @@ function createPdf(html, options) {
     })
     .then(() => {
       if (options.debug) {
-        fs.renameSync(tempHtmlPath, options.debug);
+        renameSync(tempHtmlPath, options.debug);
       } else {
-        fs.unlinkSync(tempHtmlPath);
+        unlinkSync(tempHtmlPath);
       }
 
       return options.destination;
     });
 }
-
-module.exports = {
-  convert,
-};

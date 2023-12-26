@@ -1,16 +1,21 @@
-const fs = require('fs');
-const should = require('should');
-const execa = require('execa');
-const mdpdf = require('../');
-const utils = require('./utils');
+import { exists as _exists, unlinkSync, existsSync } from 'fs';
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
+import should from 'should';
+import { execa } from 'execa';
+import { convert } from '../src/index.js';
+import { createOptions } from './utils.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 function clean() {
   const filesToRemove = ['./README.pdf', './README.html', './output.pdf', './test-img-output.pdf'];
 
   filesToRemove.forEach(file => {
-    fs.exists(file, exists => {
+    _exists(file, exists => {
       if (exists) {
-        fs.unlinkSync(file);
+        unlinkSync(file);
       }
     });
   });
@@ -27,7 +32,7 @@ describe('Convert CLI', function() {
       execa('./bin/index.js', ['./README.md'])
         .then(result => {
           const stdout = result.stdout;
-          const pdfExists = fs.existsSync('./README.pdf');
+          const pdfExists = existsSync('./README.pdf');
 
           pdfExists.should.be.true();
           stdout.should.endWith('README.pdf');
@@ -43,8 +48,8 @@ describe('Convert CLI', function() {
       execa('./bin/index.js', ['./README.md', '--debug'])
         .then(result => {
           const stdout = result.stdout;
-          const pdfExists = fs.existsSync('./README.pdf');
-          const htmlExists = fs.existsSync('./README.html');
+          const pdfExists = existsSync('./README.pdf');
+          const htmlExists = existsSync('./README.html');
 
           pdfExists.should.be.true();
           htmlExists.should.be.true();
@@ -61,7 +66,7 @@ describe('Convert CLI', function() {
       execa('./bin/index.js', ['./README.md', 'output.pdf'])
         .then(result => {
           const stdout = result.stdout;
-          const pdfExists = fs.existsSync('./output.pdf');
+          const pdfExists = existsSync('./output.pdf');
 
           pdfExists.should.be.true();
           stdout.should.endWith('output.pdf');
@@ -77,7 +82,7 @@ describe('Convert CLI', function() {
       execa('./bin/index.js', ['./tests/test.md', './test-img-output.pdf'])
         .then(result => {
           const stdout = result.stdout;
-          const pdfExists = fs.existsSync('./test-img-output.pdf');
+          const pdfExists = existsSync('./test-img-output.pdf');
 
           pdfExists.should.be.true();
           stdout.should.endWith('test-img-output.pdf');
@@ -97,13 +102,12 @@ describe('Convert API', function() {
 
   context('when given a markdown source', () => {
     it('creates a pdf', done => {
-      const options = utils.createOptions({
+      const options = createOptions({
         source: 'README.md',
       });
-      mdpdf
-        .convert(options)
+      convert(options)
         .then(pdfPath => {
-          const pdfExists = fs.existsSync('./README.pdf');
+          const pdfExists = existsSync('./README.pdf');
 
           pdfExists.should.be.true();
 
@@ -115,15 +119,14 @@ describe('Convert API', function() {
 
   context('when debug is true', () => {
     it('creates a html file', done => {
-      const options = utils.createOptions({
+      const options = createOptions({
         source: 'README.md',
         debug: true,
       });
-      mdpdf
-        .convert(options)
+      convert(options)
         .then(pdfPath => {
-          const pdfExists = fs.existsSync('./README.pdf');
-          const htmlExists = fs.existsSync('./README.html');
+          const pdfExists = existsSync('./README.pdf');
+          const htmlExists = existsSync('./README.html');
 
           pdfExists.should.be.true();
           htmlExists.should.be.true();
@@ -136,14 +139,13 @@ describe('Convert API', function() {
 
   context('when destination is set', () => {
     it('creates a pdf at the destination', done => {
-      const options = utils.createOptions({
+      const options = createOptions({
         source: 'README.md',
         destination: 'output.pdf',
       });
-      mdpdf
-        .convert(options)
+      convert(options)
         .then(pdfPath => {
-          const pdfExists = fs.existsSync('./output.pdf');
+          const pdfExists = existsSync('./output.pdf');
 
           pdfExists.should.be.true();
 

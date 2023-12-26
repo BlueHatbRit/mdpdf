@@ -1,4 +1,4 @@
-function getOptions(options) {
+export function getOptions(options) {
   let displayHeaderFooter = false;
   if (options.header || options.footer) {
     displayHeaderFooter = true;
@@ -23,7 +23,3 @@ function getOptions(options) {
     footerTemplate: options.footer || '',
   };
 }
-
-module.exports = {
-  getOptions,
-};
